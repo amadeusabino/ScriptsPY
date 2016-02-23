@@ -12,6 +12,10 @@ connection_rabb = pika.BlockingConnection(pika.ConnectionParameters(host='localh
 channel = connection_rabb.channel()
 channel.queue_declare(queue='RECOM_CONTRATO', durable='true')
 
+# cria fila LOG de Erros
+channelLog = connection_rabb.channel()
+channelLog.queue_declare(queue='RECOM_CONTRATO_LOG', durable='true')
+
 print ' **** Esperando e processando mensagens da fila Rabbit.... CTRL+C para sair.'
 
 def callback(ch, method, properties, body):
@@ -20,10 +24,10 @@ def callback(ch, method, properties, body):
     XMLParse(body)
 #    print valor
 
-#dados do XML
-#['Data_Processamento', 'Operador', 'Id', 'Destino', 'Origem', 'Nome', 'Tipo', 'Valor'] 
+#dados do XML ['Data_Processamento', 'Operador', 'Id', 'Destino', 'Origem', 'Nome', 'Tipo', 'Valor'] 
     
-    cursor.execute('insert /*+append*/ into rc_teste_xml values (:v0, :v1, :v2, :v3, :v4, :v5, :v6, :v7)', {
+    try: 
+        cursor.execute('insert /*+append*/ into rc_teste_xml values (:v0, :v1, :v2, :v3, :v4, :v5, :v6, :v7)', {
                             'v0' : valor[0],  #data_processamento
                             'v1' : valor[2],  #legado_id
                             'v2' : valor[1],  #legado_operador
@@ -33,8 +37,16 @@ def callback(ch, method, properties, body):
                             'v6' : valor[7],  #registro_valor
                             'v7' : valor[6]   #registro_tipo
                             })
-    connection_ora.commit()
-
+    except Exception:
+            #  se der erro insere no log
+            channelLog.basic_publish(exchange='',
+                                     routing_key='RECOM_CONTRATO_LOG',
+                                     properties=pika.BasicProperties(delivery_mode = 2, # make message persistent
+                                                                     ),
+                                     body=body)
+    else: 
+        connection_ora.commit()
+    
 def XMLParse(xml):
     # gera lista com o conteudo do XML passado
     sourceXML = xml
